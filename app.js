@@ -1,3 +1,49 @@
+let gameLoopId;
+let gameRunning = true;
+//GameObject class is considered to be the basis of the program
+//It acts as the defintion of the comon properties including the position, size and image
+class GameObject{
+  
+  constructor(x, y){
+    this.x = x;
+    this.y = y;
+    this.dead = false; //FLAG: makes sense initially 
+    this.type = "";
+    this.width = 0;
+    this.height = 0;
+    this.img = undefined;
+  }
+
+  //Rendering: objects onto the canvas
+  draw(ctx){
+    ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
+  }
+  
+  //Boundary: coordinates for each object
+  rectFromGameObject(){
+    //Rectangle w/ precise boundary coordinates
+    
+    //Return: object that can be used to detect collisions
+    return{
+      top: this.y,
+      left: this.x,
+      bottom: this.y+this.height,
+      right: this.x+this.width,
+    }
+  }
+}
+
+
+//Intersection: Uses the boundary rectangles to test separation conditions
+  function intersectRect(r1, r2) {
+  return !(
+    r2.left > r1.right ||
+    r2.right < r1.left ||
+    r2.top > r1.bottom ||
+    r2.bottom < r1.top
+  );
+}
+
 function loadTexture(path) {
   return new Promise((resolve) => {
     const img = new Image()
@@ -32,7 +78,7 @@ class EventEmitter{
 }
 }
 
-function createEnemies(ctx, canvas, enemyImg) {
+function createEnemies() {
   //Constants: needed for the layout of the ships into correct positions
   //This creates a grid (5 by 5) ensuring there is enough space and width
   //The start and stop of the formation are determined to later dtermined the center
@@ -62,7 +108,7 @@ function createHero(){
   );
 
   //image to the hero
-  player.img = playerImg;
+  hero.img = heroImg;
 
   //addition of the hero to the objects of the game for rendering purposes
   gameObjects.push(hero);
@@ -73,65 +119,25 @@ window.onload = async () => {
   ctx = canvas.getContext('2d')
 
   //Game Textures: using await loadAsset(path) player and enemy images to be loaded
-  playerImg = await loadTexture('assets/player.png');
+  heroImg = await loadTexture('assets/hero.png');
   enemyImg = await loadTexture('assets/enemyShip.png');
   laserImg = await loadTexture('assets/laserRed.png')
-  lifeImg = lifeImg = await loadTexture("assets/life.png");
+  lifeImg = await loadTexture("assets/life.png");
 
   //Initialization: calling the method for the game init
   initGame();
-  
-  //Background: canvas of black colour
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  //Draw hero: using ctx.drawImage and provided params to center and place the players at the bottom
-  ctx.drawImage(playerImg,canvas.width/2 - 45, canvas.height - (canvas.height / 4), 90, 90);
-
-  createEnemies(ctx, canvas, enemyImg);
+  gameLoopId = setInterval(() => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    updateGameObjects();
+    drawPoints();
+    drawLife();
+    drawGameObjects(ctx);
+  }, 16);
 }
 
-//GameObject class is considered to be the basis of the program
-//It acts as the defintion of the comon properties including the position, size and image
-class GameObject{
-  constructor(x, y){
-    this.x = x;
-    this.y = y;
-    this.dead = false; //FLAG: makes sense initially 
-    this.type = "";
-    this.width = 0;
-    this.height = 0;
-    this.img = undefined;
-  }
-
-  //Rendering: objects onto the canvas
-  draw(ctx){
-    ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
-  }
-  
-  //Boundary: coordinates for each object
-  rectFromGameObject(){
-    //Rectangle w/ precise boundary coordinates
-    
-    //Return: object that can be used to detect collisions
-    return{
-      top: this.y,
-      left: this.x,
-      bottom: this.y+this.height,
-      right: this.x+this.width,
-    }
-  }
-}
-
-//Intersection: Uses the boundary rectangles to test separation conditions
-  function intersectRect(r1, r2) {
-  return !(
-    r2.left > r1.right ||
-    r2.right < r1.left ||
-    r2.top > r1.bottom ||
-    r2.bottom < r1.top
-  );
-}
 
 //Both the hero and the enemy will be extensions of the GameObject class [inheritence]
 class Hero  extends GameObject{
@@ -149,6 +155,8 @@ class Hero  extends GameObject{
     this.cooldown = 0;
     this.life = 3;
     this.points = 0;
+
+  
   }
 
   fire() {
@@ -174,6 +182,14 @@ class Hero  extends GameObject{
   incrementPoints() {
     this.points += 100;
   }
+
+  //Method to decrement the life of the player
+  decrementLife() {
+    this.life--;
+    if (this.life === 0) {
+      this.dead = true;
+    }
+  }
 } 
 
 class Enemy extends GameObject{
@@ -191,11 +207,69 @@ class Enemy extends GameObject{
       if (this.y < canvas.height - this.height){
         this.y += 5;
       }else{
-        console.log('Stopped at', this.y);
+        eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy: this });
         clearInterval(id);
       }
     }, 300);
+    
   }
+}
+
+//Laser class: projectiles that will be moving upwards
+class Laser extends GameObject {
+  //Inheritence: from GameObject for basic function
+  constructor(x, y) {
+    super(x, y);
+
+    //Dimensions for the laser sprite
+    this.width = 9;
+    this.height = 33;
+    this.type = 'Laser';
+    this.img = laserImg;
+    
+    //setInterval() creates the automatic upward movement
+    let id = setInterval(() => {
+      if (this.y > 0) {
+        this.y -= 15;
+      } else { 
+        //self destruction when reaches top
+        this.dead = true;
+        clearInterval(id);
+      }
+    }, 100);
+  }
+}
+
+//Collision detection:
+function updateGameObjects() {
+  if (!gameRunning) return;
+
+  const enemies = gameObjects.filter(go => go.type === 'Enemy');
+  const lasers = gameObjects.filter(go => go.type === "Laser");
+  
+  //Tests intersections between the laser and enemy (nested loop)
+  lasers.forEach((laser) => {
+    enemies.forEach((enemy) => {
+      if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
+        eventEmitter.emit(Messages.COLLISION_ENEMY_LASER, {
+          first: laser,
+          second: enemy,
+        });
+      }
+    });
+  });
+
+  //Occurence of the collision
+  enemies.forEach(enemy => {
+    const heroRect = hero.rectFromGameObject();
+    if (intersectRect(heroRect, enemy.rectFromGameObject())) {
+      eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy });
+    }
+  })
+
+  //Removal of detroyed objects
+  gameObjects = gameObjects.filter(go => !go.dead);
+
 }
 
 //Event Handling: navigation
@@ -237,7 +311,7 @@ window.addEventListener("keyup", (evt)=>{
     eventEmitter.emit(Messages.KEY_EVENT_LEFT);
   }else if(evt.key === "ArrowRight"){
     eventEmitter.emit(Messages.KEY_EVENT_RIGHT);
-  } else if(evt.key === 32) {
+  } else if(evt.key === " ") {
   eventEmitter.emit(Messages.KEY_EVENT_SPACE);
   } else if(evt.key === "Enter") {
    eventEmitter.emit(Messages.KEY_EVENT_ENTER);
@@ -285,19 +359,19 @@ function initGame(){
 
   //Actions associated with events in terms of positioning
   eventEmitter.on(Messages.KEY_EVENT_UP, () => {
-    hero.y -=5;
+    hero.y -=15;
   });
 
   eventEmitter.on(Messages.KEY_EVENT_DOWN, () => {
-    hero.y +=5;
+    hero.y +=15;
   });
 
   eventEmitter.on(Messages.KEY_EVENT_LEFT, () => {
-    hero.x -=5;
+    hero.x -=15;
   });
 
   eventEmitter.on(Messages.KEY_EVENT_RIGHT, () => {
-    hero.x +=5;
+    hero.x +=15;
   });
 
   //Firing behaviour
@@ -352,70 +426,6 @@ function drawGameObjects(ctx){
   gameObjects.forEach(go => go.draw(ctx));
 }
 
-//Allows to change the frames
-const gameLoopId = setInterval(() => {
-  function gameLoop() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawHero();
-    drawEnemies();
-    drawStaticObjects();
-  }
-  gameLoop();
-}, 200);
-
-//Laser class: projectiles that will be moving upwards
-class Laser extends GameObject {
-  //Inheritence: from GameObject for basic function
-  constructor(x, y) {
-    super(x, y);
-
-    //Dimensions for the laser sprite
-    this.width = 9;
-    this.height = 33;
-    this.type = 'Laser';
-    this.img = laserImg;
-    
-    //setInterval() creates the automatic upward movement
-    let id = setInterval(() => {
-      if (this.y > 0) {
-        this.y -= 15;
-      } else { 
-        //self destruction when reaches top
-        this.dead = true;
-        clearInterval(id);
-      }
-    }, 100);
-  }
-}
-
-//Collision detection:
-function updateGameObjects() {
-  const enemies = gameObjects.filter(go => go.type === 'Enemy');
-  const lasers = gameObjects.filter(go => go.type === "Laser");
-  
-  //Tests intersections between the laser and enemy (nested loop)
-  lasers.forEach((laser) => {
-    enemies.forEach((enemy) => {
-      if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
-        eventEmitter.emit(Messages.COLLISION_ENEMY_LASER, {
-          first: laser,
-          second: enemy,
-        });
-      }
-    });
-  });
-
-  //Removal of detroyed objects
-  gameObjects = gameObjects.filter(go => !go.dead);
-
-
-  //Calling the methods to display the points and lifes to the player
-  drawPoints();
-  drawLife();
-}
-
 function drawLife() {
   // TODO, 35, 27
   const START_POS = canvas.width - 180;
@@ -460,6 +470,7 @@ function displayMessage(message, color = "red") {
 
 //Method to end the game
 function endGame(win) {
+  gameRunning = false; 
   clearInterval(gameLoopId);
 
   //Delay intended to ensure all renders are complete
@@ -482,8 +493,15 @@ function endGame(win) {
 
 //Initialization of a fresh game session
 function resetGame() {
+  gameRunning = true;
+ 
   if (gameLoopId) {
     clearInterval(gameLoopId);
+    
+    //setting the enemies and the lasers to "dead" for the garbage collection to remove them from the game
+    gameObjects.forEach(go => go.dead = true);
+    gameObjects = [];
+
     eventEmitter.clear();
     initGame();
     gameLoopId = setInterval(() => {
@@ -494,6 +512,6 @@ function resetGame() {
       drawLife();
       updateGameObjects();
       drawGameObjects(ctx);
-    }, 100);
+    }, 16);
   }
 }
