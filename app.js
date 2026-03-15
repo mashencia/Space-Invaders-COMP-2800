@@ -1,5 +1,5 @@
 let gameLoopId;
-let gameRunning = true;
+
 //GameObject class is considered to be the basis of the program
 //It acts as the defintion of the comon properties including the position, size and image
 class GameObject{
@@ -22,14 +22,13 @@ class GameObject{
   //Boundary: coordinates for each object
   rectFromGameObject(){
     //Rectangle w/ precise boundary coordinates
-    
     //Return: object that can be used to detect collisions
     return{
       top: this.y,
       left: this.x,
       bottom: this.y+this.height,
       right: this.x+this.width,
-    }
+    };
   }
 }
 
@@ -49,7 +48,7 @@ function loadTexture(path) {
     const img = new Image()
     img.src = path
     img.onload = () => {
-      resolve(img)
+      resolve(img);
     }
   })
 }
@@ -66,6 +65,7 @@ class EventEmitter{
     }
     this.listeners[msg].push(listener);
   }
+
   emit(msg, payload = null) {
     if (this.listeners[msg]) {
       this.listeners[msg].forEach(l => l(msg, payload));
@@ -74,8 +74,8 @@ class EventEmitter{
 
   //Needed for reset
   clear() {
-  this.listeners = {};
-}
+    this.listeners = {};
+  }
 }
 
 function createEnemies() {
@@ -131,10 +131,10 @@ window.onload = async () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    updateGameObjects();
     drawPoints();
-    drawLife();
-    drawGameObjects(ctx);
+		drawLife();
+		updateGameObjects();
+		drawGameObjects(ctx);
   }, 16);
 }
 
@@ -149,7 +149,7 @@ class Hero  extends GameObject{
     //overrides original state definitions
     this.width = 99;
     this.height = 75;
-    this.type = "Hero";
+    this.type = 'Hero';
     this.speed = { x: 0, y: 0 };
     //Initialization of the cooldown timer
     this.cooldown = 0;
@@ -200,17 +200,17 @@ class Enemy extends GameObject{
     //overrides the original
     this.width = 98;
     this.height = 50;
-    this.type = "Enemy";
+    this.type = 'Enemy';
 
     //adding an "id" state
-    const id = setInterval(() =>{ //setInterval allows for automatic movement of the enemies
-      if (this.y < canvas.height - this.height){
-        this.y += 5;
-      }else{
-        eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy: this });
-        clearInterval(id);
-      }
-    }, 300);
+    let id = setInterval(() => {
+			if (this.y < canvas.height - this.height) {
+				this.y += 5;
+			} else {
+				console.log('Stopped at', this.y);
+				clearInterval(id);
+			}
+		}, 300);
     
   }
 }
@@ -242,10 +242,8 @@ class Laser extends GameObject {
 
 //Collision detection:
 function updateGameObjects() {
-  if (!gameRunning) return;
-
   const enemies = gameObjects.filter(go => go.type === 'Enemy');
-  const lasers = gameObjects.filter(go => go.type === "Laser");
+  const lasers = gameObjects.filter(go => go.type === 'Laser');
   
   //Tests intersections between the laser and enemy (nested loop)
   lasers.forEach((laser) => {
@@ -273,7 +271,7 @@ function updateGameObjects() {
 }
 
 //Event Handling: navigation
-const onKeyDown = function (e) {
+let onKeyDown = function (e) {
 
   //Logs: debugging purposes - keys identification
   console.log(e.keyCode);
@@ -316,7 +314,7 @@ window.addEventListener("keyup", (evt)=>{
   } else if(evt.key === "Enter") {
    eventEmitter.emit(Messages.KEY_EVENT_ENTER);
   }
-})
+});
 
 
 //constraints needed for the event emitter class
@@ -377,7 +375,7 @@ function initGame(){
   //Firing behaviour
   eventEmitter.on(Messages.KEY_EVENT_SPACE, () => {
     if (hero.canFire()) {
-    hero.fire();
+        hero.fire();
     }
   });
 
@@ -429,7 +427,7 @@ function drawGameObjects(ctx){
 function drawLife() {
   // TODO, 35, 27
   const START_POS = canvas.width - 180;
-  for(let i=0; i < hero.life; i++ ) {
+  for(let i=0; i < hero.life; i++) {
     ctx.drawImage(
       lifeImg, 
       START_POS + (45 * (i+1) ), 
@@ -469,8 +467,7 @@ function displayMessage(message, color = "red") {
 }
 
 //Method to end the game
-function endGame(win) {
-  gameRunning = false; 
+function endGame(win) { 
   clearInterval(gameLoopId);
 
   //Delay intended to ensure all renders are complete
@@ -493,15 +490,8 @@ function endGame(win) {
 
 //Initialization of a fresh game session
 function resetGame() {
-  gameRunning = true;
- 
   if (gameLoopId) {
     clearInterval(gameLoopId);
-    
-    //setting the enemies and the lasers to "dead" for the garbage collection to remove them from the game
-    gameObjects.forEach(go => go.dead = true);
-    gameObjects = [];
-
     eventEmitter.clear();
     initGame();
     gameLoopId = setInterval(() => {
