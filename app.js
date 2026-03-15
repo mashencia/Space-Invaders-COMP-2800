@@ -8,6 +8,20 @@ function loadTexture(path) {
   })
 }
 
+//Publishing and subscription to msgs
+class EventEmitter{
+  constructor(){
+    this.listeners = {};
+  }
+
+  on(msg, listener){
+    if(!this.listeners[msg]){
+      this.listeners[msg] = [];
+    }
+    this.listeners[msg].push(listener);
+  }
+  
+}
 
 function createEnemies(ctx, canvas, enemyImg) {
   //Constants: needed for the layout of the ships into correct positions
@@ -183,20 +197,7 @@ let heroImg,
     hero, 
     eventEmitter = new EventEmitter();
 
-//Publishing and subscription to msgs
-class EventEmitter{
-  constructor(){
-    this.listeners = {};
-  }
 
-  on(msg, listener){
-    if(!this.listeners[msg]){
-      this.listeners[msg] = [];
-    }
-    this.listeners[msg].push(listener);
-  }
-  
-}
 
 //Game initialization (function)
 function initGame(){
