@@ -20,7 +20,11 @@ class EventEmitter{
     }
     this.listeners[msg].push(listener);
   }
-  
+  emit(msg, payload = null) {
+    if (this.listeners[msg]) {
+      this.listeners[msg].forEach(l => l(msg, payload));
+    }
+  }
 }
 
 function createEnemies(ctx, canvas, enemyImg) {
@@ -53,7 +57,7 @@ function createHero(){
   );
 
   //image to the hero
-  hero.img = heroImg;
+  player.img = playerImg;
 
   //addition of the hero to the objects of the game for rendering purposes
   gameObjects.push(hero);
@@ -67,7 +71,8 @@ window.onload = async () => {
   playerImg = await loadTexture('assets/player.png');
   enemyImg = await loadTexture('assets/enemyShip.png');
   laserImg = await loadTexture('assets/laserRed.png')
-  
+  lifeImg = lifeImg = await loadTexture("assets/life.png");
+
   //Initialization: calling the method for the game init
   initGame();
   
@@ -96,8 +101,31 @@ class GameObject{
 
   //Rendering: objects onto the canvas
   draw(ctx){
-    ctx.drawImage(this.img, this.x, this.y,  this.width, this.height);
+    ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
   }
+  
+  //Boundary: coordinates for each object
+  rectFromGameObject(){
+    //Rectangle w/ precise boundary coordinates
+    
+    //Return: object that can be used to detect collisions
+    return{
+      top: this.y,
+      left: this.x,
+      bottom: this.y+this.height,
+      right: this.x+this.width,
+    }
+  }
+}
+
+//Intersection: Uses the boundary rectangles to test separation conditions
+  function intersectRect(r1, r2) {
+  return !(
+    r2.left > r1.right ||
+    r2.right < r1.left ||
+    r2.top > r1.bottom ||
+    r2.bottom < r1.top
+  );
 }
 
 //Both the hero and the enemy will be extensions of the GameObject class [inheritence]
@@ -108,10 +136,38 @@ class Hero  extends GameObject{
     super(x, y);
 
     //overrides original state definitions
-    this.width = 98;
+    this.width = 99;
     this.height = 75;
     this.type = "Hero";
-    this.speed = 5;
+    this.speed = { x: 0, y: 0 };
+    //Initialization of the cooldown timer
+    this.cooldown = 0;
+    this.life = 3;
+    this.points = 0;
+  }
+
+  fire() {
+    //Positioning of the lasers above the hero ship
+    gameObjects.push(new Laser(this.x + 45, this.y - 10));
+    this.cooldown = 500;
+
+    //Decrement of the timer using interval-based upds.
+    let id = setInterval(() => {
+      if (this.cooldown > 0) {
+        this.cooldown -= 100;
+      } else {
+        clearInterval(id);
+      }
+    }, 200);
+
+  incrementPoints() {
+    this.points += 100;
+  }
+  }
+  
+  //MEthod to check firing status
+  canFire() {
+    return this.cooldown === 0;
   }
 } 
 
@@ -176,8 +232,12 @@ window.addEventListener("keyup", (evt)=>{
     eventEmitter.emit(Messages.KEY_EVENT_LEFT);
   }else if(evt.key === "ArrowRight"){
     eventEmitter.emit(Messages.KEY_EVENT_RIGHT);
+  } else if(evt.key === 32) {
+  eventEmitter.emit(Messages.KEY_EVENT_SPACE);
   }
 })
+
+
 //constraints needed for the event emitter class
 const Messages = {
   //Message constants reduce the amount of erros associated with typos
@@ -186,11 +246,15 @@ const Messages = {
   KEY_EVENT_DOWN: "KEY_EVENT_DOWN",
   KEY_EVENT_LEFT: "KEY_EVENT_LEFT",
   KEY_EVENT_RIGHT: "KEY_EVENT_RIGHT",
+  KEY_EVENT_SPACE: "KEY_EVENT_SPACE",
+  COLLISION_ENEMY_LASER: "COLLISION_ENEMY_LASER",
+  COLLISION_ENEMY_HERO: "COLLISION_ENEMY_HERO",
 };
 
 let heroImg, 
     enemyImg, 
     laserImg,
+    lifeImg,
     canvas, ctx, 
     //Array to hold game objects
     gameObjects = [], 
@@ -226,10 +290,116 @@ function initGame(){
     hero.x +=5;
   });
 
+  //Firing behaviour
+  eventEmitter.on(Messages.KEY_EVENT_SPACE, () => {
+    if (hero.canFire()) {
+    hero.fire();
+    }
+  });
+
+ //Collision handling
+eventEmitter.on(Messages.COLLISION_ENEMY_LASER, (_, { first, second }) => {
+   first.dead = true;
+   second.dead = true;
+   hero.incrementPoints();
+})
+
+eventEmitter.on(Messages.COLLISION_ENEMY_HERO, (_, { enemy }) => {
+   enemy.dead = true;
+   hero.decrementLife();
+});
+
+
 };
 
 //Method to start the drawing
 function drawGameObjects(ctx){
   //ensures iteration through each element intended for rendering
   gameObjects.forEach(go => go.draw(ctx));
+}
+
+//Allows to change the frames
+const gameLoopId = setInterval(() => {
+  function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawHero();
+    drawEnemies();
+    drawStaticObjects();
+  }
+  gameLoop();
+}, 200);
+
+//Laser class: projectiles that will be moving upwards
+class Laser extends GameObject {
+  //Inheritence: from GameObject for basic function
+  constructor(x, y) {
+    super(x, y);
+
+    //Dimensions for the laser sprite
+    this.width = 9;
+    this.height = 33;
+    this.type = 'Laser';
+    this.img = laserImg;
+    
+    //setInterval() creates the automatic upward movement
+    let id = setInterval(() => {
+      if (this.y > 0) {
+        this.y -= 15;
+      } else { 
+        //self destruction when reaches top
+        this.dead = true;
+        clearInterval(id);
+      }
+    }, 100);
+  }
+}
+
+//Collision detection:
+function updateGameObjects() {
+  const enemies = gameObjects.filter(go => go.type === 'Enemy');
+  const lasers = gameObjects.filter(go => go.type === "Laser");
+  
+  //Tests intersections between the laser and enemy (nested loop)
+  lasers.forEach((laser) => {
+    enemies.forEach((enemy) => {
+      if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
+        eventEmitter.emit(Messages.COLLISION_ENEMY_LASER, {
+          first: laser,
+          second: enemy,
+        });
+      }
+    });
+  });
+
+  //Removal of detroyed objects
+  gameObjects = gameObjects.filter(go => !go.dead);
+
+
+  //Calling the methods to display the points and lifes to the player
+  drawPoints();
+  drawLife();
+}
+
+function drawLife() {
+  // TODO, 35, 27
+  const START_POS = canvas.width - 180;
+  for(let i=0; i < hero.life; i++ ) {
+    ctx.drawImage(
+      lifeImg, 
+      START_POS + (45 * (i+1) ), 
+      canvas.height - 37);
+  }
+}
+
+function drawPoints() {
+  ctx.font = "30px Arial";
+  ctx.fillStyle = "red";
+  ctx.textAlign = "left";
+  drawText("Points: " + hero.points, 10, canvas.height-20);
+}
+
+function drawText(message, x, y) {
+  ctx.fillText(message, x, y);
 }
